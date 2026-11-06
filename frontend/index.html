@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Sevenheavens — Edit Studio</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to editor</a>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Sevenheavens Edit Studio home"><span class="brand-symbol">7H</span><span>SEVENHEAVENS<small>EDIT STUDIO</small></span></a>
+    <div class="topbar-right"><span class="local-indicator"><i></i>Local workspace</span><button id="new-project" class="button primary" type="button">New edit <span aria-hidden="true">+</span></button></div>
+  </header>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Your edits">
+      <div class="sidebar-heading"><span class="eyebrow">LIBRARY</span><span id="project-count" class="count">0</span></div>
+      <nav id="project-list" aria-label="Projects"><p class="muted small">Loading your edits…</p></nav>
+      <div class="sidebar-footer"><span class="eyebrow">ON THIS MAC</span><p>Sources stay intact.<br>Every revision has its own plan.</p><div id="service-state" class="small muted" role="status">Connecting…</div></div>
+    </aside>
+    <main id="workspace" tabindex="-1" aria-label="Editor workspace"><section class="welcome"><span class="eyebrow">FROM THE SHOOT TO THE CUT</span><h1>Your footage.<br>Your next edit.</h1><p class="lede">Build a piece from your own shoot, a reference, and a clear direction. Review the selected moments before making it yours.</p><button class="button primary" type="button" data-action="new-project">Start an edit <span aria-hidden="true">↗</span></button><div class="welcome-steps"><div><span>01</span><h2>Bring the shoot</h2><p>Register footage, a reference and music from a folder on this Mac.</p></div><div><span>02</span><h2>Set the direction</h2><p>Choose the format, product and details that matter to the piece.</p></div><div><span>03</span><h2>Review the moments</h2><p>Inspect source ranges, adjust the cut and keep each revision.</p></div></div></section></main>
+  </div>
+  <dialog id="project-dialog" aria-labelledby="project-dialog-title">
+    <form id="project-create-form">
+      <div class="dialog-header"><div><span class="eyebrow">NEW EDIT</span><h2 id="project-dialog-title">Give the piece a direction.</h2></div><button class="icon-button" type="button" data-close="project-dialog" aria-label="Close new edit dialog">×</button></div>
+      <label>Edit name<input name="name" required maxlength="120" placeholder="Campaign 01 · Outfit montage" autocomplete="off"></label>
+      <label>What should this piece do?<textarea name="directions" rows="3" placeholder="Lead with movement. Show the full silhouette, then garment details. Clean cuts; no text."></textarea></label>
+      <div class="form-grid"><label>Duration <span class="field-unit">seconds</span><input name="duration_seconds" type="number" min="1" max="120" value="15" step="0.1" required></label><label>Frame rate<select name="fps"><option value="25">25 fps</option><option value="30" selected>30 fps</option><option value="24">24 fps</option></select></label></div>
+      <p class="form-note">Start with a 9:16 portrait edit. You can register your footage and refine the brief next.</p>
+      <p id="create-error" class="inline-error" role="alert" hidden></p>
+      <div class="dialog-footer"><button class="button secondary" type="button" data-close="project-dialog">Cancel</button><button class="button primary" type="submit">Create edit</button></div>
+    </form>
+  </dialog>
+  <dialog id="import-dialog" aria-labelledby="import-dialog-title">
+    <div class="dialog-header"><div><span class="eyebrow">ADD MEDIA</span><h2 id="import-dialog-title">Choose files on this Mac.</h2></div><button class="icon-button" type="button" data-close="import-dialog" aria-label="Close media dialog">×</button></div>
+    <div id="import-content"></div>
+  </dialog>
+  <dialog id="shot-dialog" aria-labelledby="shot-dialog-title"><div id="shot-dialog-content"></div></dialog>
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+  <noscript><p class="no-script">Enable JavaScript to use the local editor.</p></noscript>
+</body>
+</html>

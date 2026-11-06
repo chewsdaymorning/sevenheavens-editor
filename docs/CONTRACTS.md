@@ -1,0 +1,21 @@
+# Shared contracts
+
+Version: `0.1-provisional`. Authoritative executable definitions: `backend/contracts.py`. Orchestrator owns changes. No live integration acceptance has occurred.
+
+- `Asset`: immutable original hash/path, optional working path, display dimensions, stream PTS origin, rational nominal rate, observed rate mode/color/rotation, confirmed product grouping and explicit working/source timestamp points. Source seconds are presentation timestamps relative to the declared original stream origin; no nominal-FPS VFR frame claims.
+- `CandidateWindow`: bounded source seconds, source ID, evidence IDs/sample timestamps, analysis run, mode, confidence and warnings. Live AI requires actual call/sample evidence.
+- `ReferenceRecipe`, `MusicMap`: observed reference roles/cuts with uncertainties; absolute source music anchors and optional manually verified corrections.
+- `Brief`: chosen source pool, supplied reference/music, recreate/adapt mode, directions, dimensions/rational output rate, product constraint and crop permission. Processing is local-only with zero cloud budget.
+- `Shot`/`EditPlan`: explicit source intervals, contiguous integer timeline frame boundaries, allowlisted operations, candidate provenance or declared manual override, isolated immutable version identity. Manual selections are assisted mode. Missing coverage blocks render until explicitly resolved.
+- `Job`: durable stage/status/mode/attempt/cost/error/artifacts. Interrupted queued/running work becomes `needs_attention`; no blind paid retries.
+- `Correction`: before/after, reason, approval and edit/format/reusable-rule scope. Approved applicable records must enter later planning context. Saved feedback is workflow memory, not trained weights.
+
+Public helpers: `quantize_seconds(seconds,fps_num,fps_den)` rounds absolute times; `validate_plan(plan,assets,candidates=None,brief=None)` checks identity, source bounds, provenance, continuity, duration, supported operations, product/crop and music bounds.
+
+Media handoff: `register_asset(path, role='source', product_group=None) -> Asset`; `create_proxy(asset,output_dir) -> Asset`; `sample_frames(asset,output_dir,timestamps_s=None,interval_s=1.0)`; optional `extract_music_map` and `detect_reference_cuts` return observed technical analysis only. Renderer: `render_plan(plan,assets,output_dir,music_asset=None,cancel_check=None) -> dict` including `output_path`, `manifest_path` and actual validation metadata.
+
+Persistence: `Store(root)`, `put(kind,record,immutable=False)`, `get(kind,id)`, `list(kind)`, `setting(name,default)`, `set_setting(name,value)`, `applicable_corrections(brief,plan_id=None)`. Records use plural kinds (`assets`, `projects`, `plans`, `candidates`, `recipes`, `music_maps`, `jobs`, `corrections`). Runtime root defaults to ignored `data/`; environment override `SEVENHEAVENS_DATA_DIR`.
+
+API v0.1: `/api/state`, `/api/health`; POST `/api/media-roots` selects an existing local directory; POST `/api/assets` registers exact paths within selected roots; GET `/api/assets/{id}/media` plays registered originals. `/api/projects` lists/creates briefs; GET `/api/projects/{id}` returns brief/plans/jobs/corrections; POST `/api/projects/{id}/runs` accepts `{action:'analyze'|'render',plan_id:null|string}`. GET `/api/jobs/{id}`, POST `/api/jobs/{id}/cancel`. `/api/plans` accepts a validated complete plan; GET `/api/plans/{id}`, GET `/api/plans/{id}/output`. POST `/api/projects/{id}/corrections` creates durable feedback/new assisted version. `/api/music-maps` saves verified/manual anchors. No frontend fake paths or silent upload.
+
+Asset identity deduplicates content/hash and role across file paths. Import never silently reassigns an existing group. Explicit PATCH `/api/assets/{id}` accepts only `{product_group,reason}` and preserves source identity while recording `asset_revisions`. PATCH `/api/projects/{id}` saves mutable brief fields; completed outputs remain intact. `/api/state` exposes candidates/recipes and allowlisted analysis-run metadata. GET `/api/analysis-runs/{id}/evidence` accepts only JSON artifacts inside the runtime analysis directory and redacts credential/path fields. A live plan requires a recorded `analysis_runs` entry with `actual_call=true`, `mode=live_ai`, and an existing scoped artifact; this technical check does not establish semantic correctness.
