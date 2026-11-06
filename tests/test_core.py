@@ -173,3 +173,34 @@ def test_candidate_metadata_and_scoped_evidence_are_available_sanitized(tmp_path
         assert evidence.json()["evidence"]["model_decisions"][0]["start_s"] == 10
         assert "secret-test-key" not in evidence.text and "/Users/private" not in evidence.text
         assert client.get("/api/analysis-runs/outside/evidence").status_code == 404
+
+
+def test_manual_resequence_cannot_claim_live_using_candidate_call_only(tmp_path):
+    """Synthetic rejection documents ONLY; no fake call is accepted as live evidence."""
+    import json
+    app = create_app(tmp_path)
+    store = app.state.store
+    store.put("assets", source(), immutable=True)
+    reference = Asset(id="reference", sha256="fixture", original_path="fixture-reference.mp4", role="reference", duration_s=2)
+    store.put("assets", reference, immutable=True)
+    candidate = CandidateWindow(id="candidate", asset_id="source", start_s=10, end_s=12, selection_mode="live_ai", analysis_run_id="candidate-call", evidence_ids=["s1", "s2"], sample_times_s=[10, 12])
+    store.put("candidates", candidate, immutable=True)
+    store.put("recipes", {"id": "recipe", "asset_id": "reference", "evidence_ids": ["reference-call"]})
+
+    def rejection_document(identifier, stage, parsed, samples=None, task=None):
+        artifact = store.root / "analysis" / f"{identifier}.json"
+        artifact.write_text(json.dumps({"id": identifier, "mode": "live_ai", "actual_call": True, "status": "succeeded", "stage": stage, "parsed": parsed, "samples": samples or [], "prompt": "Synthetic negative test only\n" + json.dumps({"task": task or {}})}))
+        store.put("analysis_runs", {"id": identifier, "mode": "live_ai", "actual_call": True, "status": "succeeded", "artifact_path": str(artifact)})
+
+    rejection_document("reference-call", "reference_analysis", {"role": "synthetic negative fixture"}, [{"asset_id": "reference", "sample_id": "r1"}])
+    rejection_document("candidate-call", "source_refinement", {"windows": [{"start_s": 10, "end_s": 12, "evidence_ids": ["s1", "s2"]}]}, [{"asset_id": "source", "sample_id": "s1"}, {"asset_id": "source", "sample_id": "s2"}])
+    live = plan(mode="live_ai", provenance={"recipe_id": "recipe"}, shots=[Shot(id="shot", asset_id="source", candidate_id="candidate", source_start_s=10, source_end_s=12, timeline_start_frame=0, timeline_end_frame=60)])
+    with TestClient(app) as client:
+        client.post("/api/projects", json={"id": "project", "name": "Synthetic negative fixture", "source_asset_ids": ["source"], "reference_asset_id": "reference"})
+        assert client.post("/api/plans", json=live.model_dump()).status_code == 422
+        live.provenance["planning_run_id"] = "planning-call"
+        assert client.post("/api/plans", json=live.model_dump()).status_code == 422
+        rejection_document("planning-call", "sequence_planning", {"constraints_satisfied": True, "coverage_gaps": [], "selections": [{"slot_index": 0, "candidate_id": "candidate", "source_start_s": 11}]}, task={"slots": [{"slot_index": 0, "start_frame": 0, "end_frame": 60}]})
+        mismatch = client.post("/api/plans", json=live.model_dump())
+        assert mismatch.status_code == 422 and "differs" in mismatch.json()["detail"]
+        assert not store.list("plans") and not store.list("jobs")

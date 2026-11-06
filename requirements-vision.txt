@@ -1,0 +1,4 @@
+# Optional, separately installed only after the user chooses to proceed.
+# Never installed by the normal application setup/start/configuration path.
+# Verified published release; no model snapshot is included.
+mlx-vlm==0.7.12

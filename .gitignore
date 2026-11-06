@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 .venv/
+.venv-vision/
 __pycache__/
 .pytest_cache/
 *.pyc

@@ -35,6 +35,7 @@ class Asset(Contract):
     id: str = Field(default_factory=new_id)
     sha256: str
     original_path: str
+    display_name: str | None = None
     working_path: str | None = None
     role: Literal["source", "reference", "music"] = "source"
     duration_s: float = Field(gt=0)

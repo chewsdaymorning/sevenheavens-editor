@@ -4,9 +4,9 @@ const $ = (selector, parent = document) => parent.querySelector(selector);
 const $$ = (selector, parent = document) => [...parent.querySelectorAll(selector)];
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const e = escapeHtml;
-const state = {data:null, projectId:localStorage.getItem('sevenheavens-project'), tab:'direction', planId:null, dirty:false, importing:false, musicMaps:{}};
+const state = {data:null, projectId:localStorage.getItem('sevenheavens-project'), tab:'recreation', planId:null, dirty:false, importing:false, musicMaps:{}, draft:freshDraft(), uploading:null};
 const time = value => Number(value || 0).toFixed(2) + 's';
-const fileName = asset => asset?.original_path?.split(/[\\/]/).pop() || 'Unavailable source';
+const fileName = asset => asset?.display_name || asset?.original_path?.split(/[\\/]/).pop() || 'Unavailable source';
 const mediaUrl = asset => `/api/assets/${encodeURIComponent(asset.id)}/media`;
 const outputUrl = plan => `/api/plans/${encodeURIComponent(plan.id)}/output`;
 const project = () => state.data?.projects?.find(item => item.id === state.projectId);
@@ -17,7 +17,7 @@ const activePlan = () => projectPlans().find(item => item.id === state.planId) |
 let noticeTimer;
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {...options, headers:{'Content-Type':'application/json',...options.headers}});
+  const response = await fetch(path, {...options, headers:{...(options.body instanceof FormData ? {} : {'Content-Type':'application/json'}),...options.headers}});
   let body;
   try { body = await response.json(); } catch { body = null; }
   if (!response.ok) {
@@ -38,7 +38,7 @@ async function refresh({render = true} = {}) {
   try {
     state.data = await api('/api/state');
     if (!project() && state.projectId) { state.projectId = null; localStorage.removeItem('sevenheavens-project'); }
-    $('#service-state').textContent = state.data.ai_configured ? 'Local analysis connected' : 'AI setup pending · $0 cloud spend';
+    $('#service-state').textContent = state.data.ai_configured ? 'Local AI ready · files stay on this Mac' : 'AI setup required · downloads paused';
     renderSidebar();
     if (render) renderWorkspace();
   } catch (error) {
@@ -63,13 +63,99 @@ function empty(title, description, action='', label='') {
   return `<div class="empty-state"><div class="empty-symbol" aria-hidden="true">↗</div><h3>${e(title)}</h3><p>${e(description)}</p>${action?`<button class="button secondary" data-action="${e(action)}">${e(label)}</button>`:''}</div>`;
 }
 
+function freshDraft() {
+  return {reference:null,sources:[],music:null,name:'',directions:'',musicMode:'reference',musicOffset:0,duration:'',format:'1080x1920',allowCrop:false,productGroup:'',constraints:'',libraryReference:'',librarySources:[],libraryMusic:'',uploaded:new WeakMap()};
+}
+const bytesLabel = value => value >= 1024 ** 3 ? `${(value / 1024 ** 3).toFixed(1)} GB` : `${(value / 1024 ** 2).toFixed(1)} MB`;
+const fileLabel = file => file ? `${file.name} · ${bytesLabel(file.size)}` : 'No file selected';
+const providerStatus = () => state.data?.provider_status || {configured:!!state.data?.ai_configured,reason:'The local visual model is not configured. Model downloads are paused.'};
+function hasOutput(plan) {
+  return !!plan && projectJobs().some(job => job.status==='succeeded' && (job.plan_id===plan.id || job.artifacts?.plan_id===plan.id) && (job.artifacts?.output_path || job.stage==='render'));
+}
+function setupBanner() {
+  const status=providerStatus();
+  if(status.configured || state.data?.ai_configured) return `<div class="setup-banner ready"><span class="status-dot" aria-hidden="true"></span><div><strong>Local AI is ready</strong><p>The reference and footage will be processed on this Mac.</p></div></div>`;
+  return `<div class="setup-banner"><span class="status-dot" aria-hidden="true"></span><div><strong>AI setup required</strong><p>You can import your files now. Automatic analysis waits for the local model; downloads are paused.</p></div><button type="button" class="button quiet small" data-action="setup">View setup</button></div>`;
+}
 function renderWorkspace() {
+  if(!project()) {renderRecreationStart();return;}
+  if(state.tab==='recreation') {renderRecreationProject();return;}
+  renderAdvancedWorkspace();
+}
+function libraryChoices() {
+  const d=state.draft,assets=state.data?.assets||[];
+  if(!assets.length)return '';
+  return `<details class="library-choices"><summary>Use files already in this workspace</summary><div class="form-grid spacer-top"><label>Saved reference<select name="library_reference">${assetOptions('reference',d.libraryReference,'Choose a reference')}</select></label><label>Saved music<select name="library_music">${assetOptions('music',d.libraryMusic,'Choose a track')}</select></label></div><span class="field-label">Saved source footage</span><div class="saved-source-list">${assets.filter(a=>a.role==='source').map(a=>`<label class="check-row"><input type="checkbox" name="library_sources" value="${e(a.id)}" ${d.librarySources.includes(a.id)?'checked':''}><span>${e(fileName(a))} <span class="muted">· ${time(a.duration_s)}</span></span></label>`).join('')||'<p class="form-note">No source footage registered yet.</p>'}</div></details>`;
+}
+function renderRecreationStart() {
+  const d=state.draft;
+  $('#workspace').innerHTML=`<section class="recreation-start"><div class="recreation-heading"><span class="eyebrow">REFERENCE IN. YOUR FOOTAGE OUT.</span><h1>Recreate a Reel.<br>Make it Sevenheavens.</h1><p class="lede">Give it the Reel you want to recreate and your raw footage. It analyzes the structure, finds matching moments, and assembles your edit to the music.</p></div>${setupBanner()}<form id="recreation-form"><div class="input-cards"><section class="input-card"><div class="input-card-heading"><span class="input-number">01</span><h2>Reference Reel</h2></div><p>The piece whose shots and pacing you want to recreate.</p><label class="file-picker" for="reference-file"><span>Choose reference video</span><input id="reference-file" type="file" accept="video/*" aria-describedby="reference-file-summary"></label><p id="reference-file-summary" class="file-summary">${e(fileLabel(d.reference))}</p><video id="reference-file-preview" class="input-reference-preview" controls preload="metadata" aria-label="Selected reference preview" hidden></video></section><section class="input-card"><div class="input-card-heading"><span class="input-number">02</span><h2>Your footage</h2></div><p>Add the takes from your shoot. Only your footage appears in the finished edit.</p><label class="file-picker" for="source-files"><span>Choose footage</span><input id="source-files" type="file" accept="video/*" multiple aria-describedby="source-file-summary"></label><p id="source-file-summary" class="file-summary">${d.sources.length?`${d.sources.length} clip${d.sources.length===1?'':'s'} selected`:'No clips selected'}</p><ul id="source-file-list" class="selected-file-list">${d.sources.slice(0,4).map(f=>`<li>${e(f.name)}</li>`).join('')}${d.sources.length>4?`<li>+ ${d.sources.length-4} more</li>`:''}</ul></section><section class="input-card"><div class="input-card-heading"><span class="input-number">03</span><h2>Music</h2></div><p>Keep the reference audio or cut to a track you provide.</p><label>Music to use<select name="music_mode" id="recreation-music-mode"><option value="reference" ${d.musicMode==='reference'?'selected':''}>Use the reference Reel’s audio</option><option value="file" ${d.musicMode==='file'?'selected':''}>Use my own music</option></select></label><label class="file-picker compact" for="music-file"><span>Choose a music file</span><input id="music-file" type="file" accept="audio/*,video/*" aria-describedby="music-file-summary"></label><p id="music-file-summary" class="file-summary">${e(fileLabel(d.music))}</p><label>Music starts at <span class="field-unit">seconds</span><input name="music_offset" type="number" min="0" step="0.01" value="${d.musicOffset}"></label></section></div><section class="recreation-direction"><label>Anything to change or pay attention to? <span class="optional">Optional</span><textarea name="directions" rows="3" placeholder="Match the opening and clean cuts. Focus on the hoodie, keep the whole garment visible, and use my song.">${e(d.directions)}</textarea></label><details class="recreation-options"><summary>Format, duration and product details</summary><div class="form-grid three spacer-top"><label>Edit name<input name="name" maxlength="120" value="${e(d.name)}" placeholder="Named from your reference"></label><label>Format<select name="format"><option value="1080x1920" ${d.format==='1080x1920'?'selected':''}>Phone · 9:16</option><option value="1080x1080" ${d.format==='1080x1080'?'selected':''}>Square · 1:1</option><option value="1920x1080" ${d.format==='1920x1080'?'selected':''}>Landscape · 16:9</option></select></label><label>Duration <span class="field-unit">seconds</span><input name="duration" type="number" min="0.1" step="0.01" value="${e(d.duration)}" placeholder="Match the reference"></label></div><div class="form-grid"><label>Confirmed outfit / product<input name="product_group" value="${e(d.productGroup)}" placeholder="Optional, confirmed by you"></label><label>Must keep / must avoid<textarea name="constraints" rows="2" placeholder="One requirement per line">${e(d.constraints)}</textarea></label></div><label class="check-row"><input type="checkbox" name="allow_crop" ${d.allowCrop?'checked':''}> Allow reframing and cropping</label><p class="form-note">Without cropping, sources are fitted inside the output frame. Product labels are supplied by you; visual analysis does not establish a SKU.</p></details>${libraryChoices()}</section><div class="recreation-submit"><p>Files are copied into this local workspace.<br>Your originals stay unchanged. No cloud uploads.</p><button class="button primary recreate-button" type="submit" ${state.importing?'disabled':''}>${state.importing?'Importing your files…':'Recreate this Reel'} <span aria-hidden="true">↗</span></button></div><p id="recreation-error" class="inline-error" role="alert" hidden></p><div id="import-progress" aria-live="polite"></div></form><div class="flow-explainer"><span>Analyze the Reel</span><i aria-hidden="true">→</i><span>Find matching moments</span><i aria-hidden="true">→</i><span>Assemble & render</span><i aria-hidden="true">→</i><span>Review your edit</span></div></section>`;
+  bindRecreationForm();
+}
+function bindRecreationForm() {
+  const form=$('#recreation-form'),d=state.draft;
+  const capture=()=>{const f=new FormData(form);d.name=String(f.get('name')||'');d.directions=String(f.get('directions')||'');d.musicMode=f.get('music_mode');d.musicOffset=Number(f.get('music_offset')||0);d.duration=String(f.get('duration')||'');d.format=f.get('format');d.productGroup=String(f.get('product_group')||'');d.constraints=String(f.get('constraints')||'');d.allowCrop=f.get('allow_crop')==='on';d.libraryReference=String(f.get('library_reference')||'');d.libraryMusic=String(f.get('library_music')||'');d.librarySources=f.getAll('library_sources');};
+  form.addEventListener('input',capture);form.addEventListener('change',capture);
+  const referencePreview=()=>{const video=$('#reference-file-preview');if(d.reference){if(d.previewUrl)URL.revokeObjectURL(d.previewUrl);d.previewUrl=URL.createObjectURL(d.reference);video.src=d.previewUrl;video.hidden=false;}};
+  $('#reference-file').addEventListener('change',event=>{d.reference=event.target.files[0]||null;$('#reference-file-summary').textContent=fileLabel(d.reference);referencePreview();});
+  $('#source-files').addEventListener('change',event=>{d.sources=[...event.target.files];$('#source-file-summary').textContent=d.sources.length?`${d.sources.length} clip${d.sources.length===1?'':'s'} selected`:'No clips selected';$('#source-file-list').innerHTML=d.sources.slice(0,4).map(f=>`<li>${e(f.name)}</li>`).join('')+(d.sources.length>4?`<li>+ ${d.sources.length-4} more</li>`:'');});
+  $('#music-file').addEventListener('change',event=>{d.music=event.target.files[0]||null;$('#music-file-summary').textContent=fileLabel(d.music);if(d.music){$('#recreation-music-mode').value='file';d.musicMode='file';}});
+  if(d.reference)referencePreview();
+  form.addEventListener('submit',async event=>{event.preventDefault();capture();await startRecreation(form);});
+}
+async function uploadFile(file,role) {
+  const d=state.draft,key=`${role}:${role==='source'?d.productGroup.trim():''}`,cached=d.uploaded.get(file)||{};
+  if(cached[key])return cached[key];
+  const body=new FormData();body.append('file',file,file.name);
+  const asset=await api(`/api/uploads?role=${encodeURIComponent(role)}${role==='source'&&d.productGroup?`&product_group=${encodeURIComponent(d.productGroup.trim())}`:''}`,{method:'POST',body});
+  cached[key]=asset;d.uploaded.set(file,cached);return asset;
+}
+async function startRecreation(form) {
+  const d=state.draft;
+  await guarded(form,async()=>{
+    if(!d.reference&&!d.libraryReference)throw new Error('Choose the reference Reel you want to recreate.');
+    if(!d.sources.length&&!d.librarySources.length)throw new Error('Choose the raw footage from your shoot.');
+    if(d.musicMode==='file'&&!d.music&&!d.libraryMusic)throw new Error('Choose a music file, or select the reference Reel’s audio.');
+    state.importing=true;const total=(d.reference?1:0)+d.sources.length+(d.musicMode==='file'&&d.music?1:0);let done=0;
+    const report=name=>{state.uploading={done,total,current:name};$('#import-progress').innerHTML=`<div class="callout import-live"><strong>Importing locally · ${done} of ${total} files ready</strong><p>${e(name)}</p><p>Each file is inspected before analysis starts.</p></div>`;};
+    try{
+      let referenceId=d.libraryReference;if(d.reference){report(`Reference: ${d.reference.name}`);referenceId=(await uploadFile(d.reference,'reference')).id;done++;}
+      const sourceIds=[...d.librarySources];for(const file of d.sources){report(`Footage: ${file.name}`);sourceIds.push((await uploadFile(file,'source')).id);done++;}
+      let musicId=d.musicMode==='file'?d.libraryMusic:null;if(d.musicMode==='file'&&d.music){report(`Music: ${d.music.name}`);musicId=(await uploadFile(d.music,'music')).id;done++;}
+      report('Creating your recreation job…');
+      const [width,height]=d.format.split('x').map(Number),name=d.name.trim()||`${d.reference?.name?.replace(/\.[^.]+$/,'')||'Reel'} recreation`;
+      const result=await send('/api/recreations',{name:name.slice(0,120),directions:d.directions,reference_asset_id:referenceId,source_asset_ids:[...new Set(sourceIds)],music_asset_id:musicId||null,use_reference_audio:d.musicMode==='reference',music_offset_s:d.musicOffset,duration_s:d.duration?Number(d.duration):null,width,height,fps_num:30,fps_den:1,allow_crop:d.allowCrop,product_group:d.productGroup.trim()||null,hard_constraints:d.constraints.split('\n').map(v=>v.trim()).filter(Boolean)});
+      state.projectId=result.project.id;state.planId=null;state.tab='recreation';localStorage.setItem('sevenheavens-project',state.projectId);state.importing=false;await refresh();
+    }finally{state.importing=false;state.uploading=null;}
+  },'#recreation-error');
+}
+const stageNames={queued:'Queued',model_missing:'AI setup required',runtime_missing:'AI setup required',setup_runtime:'AI setup required',model_setup:'AI setup required',reference_analysis:'Analyzing the reference Reel',source_scouting:'Finding matching moments',source_refinement:'Checking source timing',sequence_planning:'Assembling your edit',plan_validation:'Checking the edit plan',rendering:'Rendering your video',render:'Rendering your video',recreate:'Starting recreation',analyze:'Starting analysis'};
+function recreationProgress(job) {
+  if(!job)return `<div class="callout"><strong>Ready for recreation</strong><p>The inputs are saved. Start the recreation to analyze the reference and match your footage.</p></div>`;
+  const waitingForSetup=job.status==='blocked'&&['model_missing','runtime_missing','setup_runtime','model_setup'].includes(job.stage);
+  const renderOnly=['render','rendering'].includes(job.stage)&&!job.artifacts?.analysis_run_ids?.length&&['assisted','fixture'].includes(job.mode);
+  if(renderOnly)return `<section class="pipeline-panel" aria-live="polite"><div class="pipeline-heading"><div><span class="eyebrow">${job.mode==='fixture'?'FIXTURE CHECK':'ASSISTED EDIT'}</span><h2>${e(job.status==='succeeded'?'Rendered version ready':stageNames[job.stage]||job.stage)}</h2></div>${badge(modeLabel(job.mode),'warning')}</div><p class="form-note">This render does not establish automatic reference analysis or AI source selection.</p>${job.error?`<div class="callout warning">${e(job.error)}</div>`:''}${['running','queued'].includes(job.status)?`<button class="button quiet small" data-cancel="${e(job.id)}">Cancel this render</button>`:''}</section>`;
+  const steps=[{label:'Import files',done:true},{label:'Analyze Reel',stages:['reference_analysis']},{label:'Find moments',stages:['source_scouting','source_refinement']},{label:'Assemble',stages:['sequence_planning','plan_validation']},{label:'Render',stages:['rendering','render']}];
+  const active=steps.findIndex(step=>step.stages?.includes(job.stage)),succeeded=job.status==='succeeded';
+  return `<section class="pipeline-panel" aria-live="polite"><div class="pipeline-heading"><div><span class="eyebrow">YOUR RECREATION</span><h2>${e(succeeded?'Your edit is ready':stageNames[job.stage]||job.stage.replaceAll('_',' '))}</h2></div>${badge(waitingForSetup?'Waiting for setup':job.status.replaceAll('_',' '),['blocked','needs_attention'].includes(job.status)?'warning':job.status==='failed'?'error':'neutral')}</div><ol class="pipeline-steps">${steps.map((step,index)=>`<li class="${succeeded||step.done||active>index?'done':active===index?'current':''}"><span>${succeeded||step.done||active>index?'✓':String(index+1).padStart(2,'0')}</span>${e(step.label)}</li>`).join('')}</ol>${['running','queued'].includes(job.status)?`<div class="job-progress" role="progressbar" aria-label="Reported recreation progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(job.progress*100)}"><span style="width:${Math.round(job.progress*100)}%"></span></div><p class="form-note">${e(stageNames[job.stage]||'Waiting for the local worker')} · ${Math.round(job.progress*100)}% reported</p>`:''}${job.error?`<div class="callout ${job.status==='failed'?'error':'warning'}"><strong>${waitingForSetup?'Waiting for local AI setup':job.status==='cancelled'?'Recreation cancelled':'This recreation needs attention'}</strong><p>${e(job.error)}</p></div>`:''}${(job.artifacts?.coverage_gaps||[]).length?`<ul class="coverage-list">${job.artifacts.coverage_gaps.map(g=>`<li>${e(g)}</li>`).join('')}</ul>`:''}<div class="inline-actions spacer-top">${['running','queued'].includes(job.status)?`<button class="button quiet small" data-cancel="${e(job.id)}">Cancel this run</button>`:`<button class="button secondary small" data-action="retry-recreation">${succeeded?'Make another version':'Retry recreation'}</button>`}${!state.data.ai_configured?'<button class="button quiet small" data-action="setup">View AI setup</button>':''}<span class="small muted">${e(modeLabel(job.mode))} · Your originals stay intact</span></div></section>`;
+}
+function renderRecreationProject() {
+  const p=project(),plans=projectPlans(),jobs=projectJobs(),job=jobs.find(j=>j.stage!=='analyze')||jobs[0],reference=assetById(p.reference_asset_id),plan=activePlan();
+  $('#workspace').innerHTML=`<div class="page-heading"><div><span class="eyebrow">REEL RECREATION</span><h1>${e(p.name)}</h1><p>${p.width} × ${p.height} · ${p.duration_s?time(p.duration_s):'Match reference'} · ${p.source_asset_ids.length} source clip${p.source_asset_ids.length===1?'':'s'}</p></div><div class="heading-actions"><button class="button quiet small" data-action="new-project">New recreation +</button></div></div>${recreationProgress(job)}${plan?`<div class="recreation-result">${versionsView()}</div>`:`<div class="recreation-awaiting"><section class="panel">${empty('Your recreated edit will appear here','Your video will appear here after analysis and rendering finish.')}</section>${reference?`<aside class="panel reference-reminder"><div class="panel-header"><h2>Your reference</h2></div><div class="panel-body"><video controls preload="metadata" src="${mediaUrl(reference)}"></video><p class="status-line">${e(fileName(reference))} · ${time(reference.duration_s)}</p><p class="form-note">The reference guides the structure. The finished video uses your selected source footage.</p></div></aside>`:''}</div>`}<details class="advanced-editor"><summary>Inputs, selected source moments and edit details${plans.length?` · ${plans.length} version${plans.length===1?'':'s'}`:''}</summary><div class="inline-actions spacer-top"><button class="button secondary small" data-tab="shots">Review selected moments</button><button class="button quiet small" data-tab="direction">Adjust direction & music</button><button class="button quiet small" data-tab="footage">Inspect footage</button><button class="button quiet small" data-tab="versions">Version history</button></div><p class="form-note">Changes preserve earlier versions. Assisted editing is available in the source review; it is labeled separately from AI choices.</p></details>`;
+}
+function openSetup() {
+  const status=providerStatus();
+  $('#setup-content').innerHTML=`<div class="dialog-header"><div><span class="eyebrow">LOCAL VISUAL ANALYSIS</span><h2 id="setup-dialog-title">AI setup required</h2></div><button class="icon-button" type="button" data-close="setup-dialog" aria-label="Close AI setup">×</button></div><div class="callout warning"><strong>Model downloads are paused.</strong><p>${e(status.reason||'An existing local model and compatible runtime are required before the app can analyze footage.')}</p></div><p class="form-note">This form connects an already-installed local model. It does not download weights, upload footage or enable paid services.</p><form id="provider-form"><label>Existing local model folder<input name="model_path" required placeholder="Absolute path to the model snapshot" autocomplete="off"></label><label>Python runtime <span class="optional">Optional</span><input name="python_path" placeholder="Absolute path to a compatible Python executable" autocomplete="off"></label><p id="provider-error" class="inline-error" role="alert" hidden></p><div class="dialog-footer"><button class="button secondary" type="button" data-close="setup-dialog">Close</button><button class="button primary" type="submit">Check local setup</button></div></form>`;
+  $('#setup-dialog').showModal();$('#provider-form').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget,f=new FormData(form);await guarded(form,async()=>{const result=await send('/api/provider/config',{model_path:f.get('model_path').trim(),python_path:f.get('python_path').trim()||null});await refresh();if(!result.configured)throw new Error(result.reason||'The local model is not ready. Check the model folder and runtime.');$('#setup-dialog').close();notify('Local AI is ready. Retry the recreation when your inputs are ready.');},'#provider-error');});
+}
+
+function renderAdvancedWorkspace() {
   const p = project();
   if (!p) return;
   const plans = projectPlans();
   const shots = activePlan()?.shots || [];
   $('#workspace').innerHTML = `<div class="page-heading"><div><span class="eyebrow">EDIT WORKSPACE</span><h1>${e(p.name)}</h1><p>${p.width} × ${p.height} · ${e(time(p.duration_s))} · ${(p.fps_num/p.fps_den).toFixed(2).replace(/\.00$/,'')} fps</p></div><div class="heading-actions">${badge(state.data.ai_configured?'Local analysis ready':'AI setup pending',state.data.ai_configured?'':'warning')}<button class="button secondary small" data-action="import">Add media +</button></div></div>
-    <nav class="section-tabs" aria-label="Edit steps">${[['direction','Direction','01'],['footage','Footage',p.source_asset_ids.length],['shots','Selected shots',shots.length],['versions','Versions',plans.length]].map(([key,label,count])=>`<button class="tab ${state.tab===key?'active':''}" data-tab="${key}" ${state.tab===key?'aria-current="page"':''}>${label}<span>${count}</span></button>`).join('')}</nav>
+    <button class="button quiet small" data-tab="recreation">← Back to recreation</button><nav class="section-tabs" aria-label="Advanced edit details">${[['direction','Direction','01'],['footage','Footage',p.source_asset_ids.length],['shots','Selected shots',shots.length],['versions','Versions',plans.length]].map(([key,label,count])=>`<button class="tab ${state.tab===key?'active':''}" data-tab="${key}" ${state.tab===key?'aria-current="page"':''}>${label}<span>${count}</span></button>`).join('')}</nav>
     <div id="tab-content">${({direction:directionView,footage:footageView,shots:shotsView,versions:versionsView})[state.tab]()}</div>`;
   wireForms();
   if (state.tab==='direction' && p.music_asset_id) loadMusicMap(p.music_asset_id);
@@ -140,7 +226,7 @@ function coveragePanel(plan) {
 function versionsView() {
   const plans=projectPlans(), plan=activePlan();
   if (!plan) return `<section class="panel">${empty('Your first version belongs here','Once a plan is rendered, play the complete edit here. Corrections create a new version and keep earlier plans intact.')}</section>`;
-  const rendered=projectJobs().some(j=>j.plan_id===plan.id&&j.stage==='render'&&j.status==='succeeded');
+  const rendered=hasOutput(plan);
   const corrections=(state.data.corrections||[]).filter(c=>c.project_id===state.projectId);
   return `<div class="layout-grid"><section class="panel">${rendered?`<div class="output-player"><video controls preload="metadata" src="${outputUrl(plan)}"></video></div>`:empty('This version has no rendered output','Review its selected moments, then render to create a playable complete edit.')}<div class="output-info"><h3>${e(plan.variation_label)} · Version ${plan.version}</h3>${badge(modeLabel(plan.mode),plan.mode==='fixture'?'warning':'')}<p class="status-line">${plan.width} × ${plan.height} · ${plan.shots.length} shots · ${time(plan.shots.at(-1).timeline_end_frame*plan.fps_den/plan.fps_num)}</p><div class="output-actions">${rendered?`<a class="button primary" href="${outputUrl(plan)}" download>Download MP4 ↗</a>`:`<button class="button primary" data-render="${e(plan.id)}">Render edit</button>`}<button class="button secondary" data-tab="shots">Review shots</button><a class="button quiet" href="/api/plans/${encodeURIComponent(plan.id)}" target="_blank" rel="noopener">Canonical plan ↗</a></div><p class="form-note">Native editor export has not been connected. The canonical plan preserves the edit decisions.</p></div></section><aside class="stack"><section class="panel"><div class="panel-header"><h2>Version history</h2></div><div class="panel-body"><div class="version-list">${plans.map(v=>`<button class="version-button ${v.id===plan.id?'active':''}" data-plan="${e(v.id)}"><span>Version ${v.version} · ${e(v.variation_label)}</span><span>${e(modeLabel(v.mode))}</span></button>`).join('')}</div></div></section><section class="panel"><div class="panel-header"><h2>Saved corrections</h2></div><div class="panel-body">${corrections.length?`<ul class="feedback-list">${corrections.map(c=>`<li>${e(c.reason)}<br><span class="provenance">${e(({edit:'This edit',format:'This format',reusable_rule:'Reusable rule'})[c.scope])} · ${e(c.approval_state)}</span></li>`).join('')}</ul>`:'<p class="section-description">Replace or trim a shot to save a correction. Choose where that decision should apply.</p>'}<p class="form-note">Saved decisions are workflow memory. They do not train the model’s parameters.</p></div></section><section class="panel"><div class="panel-header"><h2>Activity</h2></div><div class="panel-body">${jobsView()}</div></section></aside></div>`;
 }
@@ -184,7 +270,7 @@ function openShot(id) {
   $('#shot-dialog').showModal();
   $('#shot-form').addEventListener('submit',async event=>{
     event.preventDefault();const form=event.currentTarget,f=new FormData(form);
-    await guarded(form,async()=>{const result=await send(`/api/projects/${encodeURIComponent(p.id)}/corrections`,{plan_id:plan.id,shot_id:shot.id,reason:f.get('reason'),scope:f.get('scope'),changes:{asset_id:f.get('asset_id'),source_start_s:Number(f.get('source_start_s')),source_end_s:Number(f.get('source_end_s'))}});state.planId=result.plan?.id||null;$('#shot-dialog').close();await refresh();notify('Correction saved. Previous version preserved.');},'#shot-error');
+    await guarded(form,async()=>{const result=await send(`/api/projects/${encodeURIComponent(p.id)}/corrections`,{plan_id:plan.id,shot_id:shot.id,reason:f.get('reason'),scope:f.get('scope'),changes:{asset_id:f.get('asset_id'),source_start_s:Number(f.get('source_start_s')),source_end_s:Number(f.get('source_end_s'))},rerender:true});state.planId=result.plan?.id||null;state.tab='recreation';$('#shot-dialog').close();await refresh();notify('Correction saved. Rendering the new version; the previous one is preserved.');},'#shot-error');
   });
 }
 
@@ -220,13 +306,15 @@ document.addEventListener('click',async event=>{
   const button=event.target.closest('button,a[data-action]');if(!button)return;
   try {
     if(button.dataset.close){$('#'+button.dataset.close).close();return;}
-    if(button.dataset.project){if(state.dirty&&!confirm('Leave the unsaved direction changes?'))return;state.projectId=button.dataset.project;state.planId=null;state.dirty=false;localStorage.setItem('sevenheavens-project',state.projectId);renderSidebar();renderWorkspace();return;}
+    if(button.dataset.project){if(state.dirty&&!confirm('Leave the unsaved direction changes?'))return;state.projectId=button.dataset.project;state.planId=null;state.tab='recreation';state.dirty=false;localStorage.setItem('sevenheavens-project',state.projectId);renderSidebar();renderWorkspace();return;}
     if(button.dataset.tab){if(state.dirty&&!confirm('Leave the unsaved direction changes?'))return;state.dirty=false;state.tab=button.dataset.tab;renderWorkspace();return;}
     if(button.dataset.plan){state.planId=button.dataset.plan;renderWorkspace();return;}
     if(button.dataset.editShot){openShot(button.dataset.editShot);return;}
     if(button.dataset.cancel){await send(`/api/jobs/${encodeURIComponent(button.dataset.cancel)}/cancel`,{});await refresh();return;}
     if(button.dataset.render){button.disabled=true;await send(`/api/projects/${encodeURIComponent(state.projectId)}/runs`,{action:'render',plan_id:button.dataset.render});state.tab='versions';await refresh();return;}
-    if(button.id==='new-project'||button.dataset.action==='new-project'){$('#project-dialog').showModal();return;}
+    if(button.id==='new-project'||button.dataset.action==='new-project'){if(state.importing)return;state.projectId=null;state.planId=null;state.tab='recreation';state.dirty=false;localStorage.removeItem('sevenheavens-project');renderSidebar();renderWorkspace();return;}
+    if(button.dataset.action==='setup') {openSetup();return;}
+    if(button.dataset.action==='retry-recreation'){button.disabled=true;await send(`/api/projects/${encodeURIComponent(state.projectId)}/runs`,{action:'recreate',plan_id:null});await refresh();return;}
     if(button.dataset.action==='refresh'){await refresh();return;}
     if(button.dataset.action==='import'){openImport();return;}
     if(button.dataset.action==='add-manual-shot'){$('#manual-rows').insertAdjacentHTML('beforeend',manualRow());return;}

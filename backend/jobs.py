@@ -13,6 +13,13 @@ class JobCancelled(Exception):
     pass
 
 
+class JobBlocked(Exception):
+    def __init__(self, message: str, stage: str = "setup", artifacts: dict | None = None):
+        super().__init__(message)
+        self.stage = stage
+        self.artifacts = artifacts or {}
+
+
 class JobManager:
     def __init__(self, store: Store):
         self.store = store
@@ -45,12 +52,14 @@ class JobManager:
                 job.attempts += 1
                 self.save(job)
 
-                def progress(value: float, stage: str | None = None):
+                def progress(value: float, stage: str | None = None, artifacts: dict | None = None):
                     if event.is_set():
                         raise JobCancelled()
                     job.progress = max(0, min(1, value))
                     if stage:
                         job.stage = stage
+                    if artifacts:
+                        job.artifacts.update(artifacts)
                     self.save(job)
 
                 result = function(event.is_set, progress)
@@ -62,6 +71,11 @@ class JobManager:
             except JobCancelled:
                 job.status = "cancelled"
                 job.error = "Cancelled; previous completed output versions remain intact."
+            except JobBlocked as exc:
+                job.status = "cancelled" if event.is_set() else "blocked"
+                job.stage = exc.stage
+                job.error = str(exc)
+                job.artifacts.update(exc.artifacts)
             except Exception as exc:
                 job.status = "cancelled" if event.is_set() else "failed"
                 job.error = str(exc)

@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <title>Sevenheavens — Edit Studio</title>
+  <title>Sevenheavens — Reel Recreation</title>
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">Skip to editor</a>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Sevenheavens Edit Studio home"><span class="brand-symbol">7H</span><span>SEVENHEAVENS<small>EDIT STUDIO</small></span></a>
-    <div class="topbar-right"><span class="local-indicator"><i></i>Local workspace</span><button id="new-project" class="button primary" type="button">New edit <span aria-hidden="true">+</span></button></div>
+    <a class="brand" href="/" aria-label="Sevenheavens Reel Recreation home"><span class="brand-symbol">7H</span><span>SEVENHEAVENS<small>REEL RECREATION</small></span></a>
+    <div class="topbar-right"><span class="local-indicator"><i></i>Files stay on this Mac</span><button id="new-project" class="button primary" type="button">New recreation <span aria-hidden="true">+</span></button></div>
   </header>
   <div class="shell">
     <aside class="sidebar" aria-label="Your edits">
@@ -20,7 +20,7 @@
       <nav id="project-list" aria-label="Projects"><p class="muted small">Loading your edits…</p></nav>
       <div class="sidebar-footer"><span class="eyebrow">ON THIS MAC</span><p>Sources stay intact.<br>Every revision has its own plan.</p><div id="service-state" class="small muted" role="status">Connecting…</div></div>
     </aside>
-    <main id="workspace" tabindex="-1" aria-label="Editor workspace"><section class="welcome"><span class="eyebrow">FROM THE SHOOT TO THE CUT</span><h1>Your footage.<br>Your next edit.</h1><p class="lede">Build a piece from your own shoot, a reference, and a clear direction. Review the selected moments before making it yours.</p><button class="button primary" type="button" data-action="new-project">Start an edit <span aria-hidden="true">↗</span></button><div class="welcome-steps"><div><span>01</span><h2>Bring the shoot</h2><p>Register footage, a reference and music from a folder on this Mac.</p></div><div><span>02</span><h2>Set the direction</h2><p>Choose the format, product and details that matter to the piece.</p></div><div><span>03</span><h2>Review the moments</h2><p>Inspect source ranges, adjust the cut and keep each revision.</p></div></div></section></main>
+    <main id="workspace" tabindex="-1" aria-label="Reel recreation workspace"><section class="welcome"><span class="eyebrow">REFERENCE IN. YOUR FOOTAGE OUT.</span><h1>Recreate a Reel.<br>Make it Sevenheavens.</h1><p class="lede">Choose a reference Reel, your footage and music. The local service is connecting…</p></section></main>
   </div>
   <dialog id="project-dialog" aria-labelledby="project-dialog-title">
     <form id="project-create-form">
@@ -38,6 +38,7 @@
     <div id="import-content"></div>
   </dialog>
   <dialog id="shot-dialog" aria-labelledby="shot-dialog-title"><div id="shot-dialog-content"></div></dialog>
+  <dialog id="setup-dialog" aria-labelledby="setup-dialog-title"><div id="setup-content"></div></dialog>
   <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
   <noscript><p class="no-script">Enable JavaScript to use the local editor.</p></noscript>
 </body>

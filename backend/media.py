@@ -244,12 +244,18 @@ def sample_frames(asset: Asset, output_dir, timestamps_s=None, interval_s=1.0,
         if not 0 <= target < asset.duration_s:
             raise MediaError("Sample time outside registered source")
         actual = min(times, key=lambda t: abs(t - target))
+        position = times.index(actual)
+        # FFprobe's decimal PTS output rounds to microseconds. Keep the select
+        # threshold just before that rounded value, bounded away from the prior
+        # decoded PTS; this also retains the final frame of a take.
+        tolerance = min(.000001, (actual - times[position - 1]) / 2) if position else .000001
         output = directory / f"frame_{index:05d}_{actual:.6f}.jpg"
         temporary = directory / f".frame-{uuid.uuid4().hex}.jpg"
         # copyts preserves nonzero source PTS; select retains the measured frame.
         command = [_binary("ffmpeg"), "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-copyts",
                    "-i", asset.original_path, "-vf",
-                   f"select=gte(t\\,{asset.stream_origin_s + actual - .0000001:.9f}),scale=480:480:force_original_aspect_ratio=decrease",
+                   f"select=gte(t\\,{asset.stream_origin_s + actual - tolerance:.9f}),scale=480:480:force_original_aspect_ratio=decrease:in_range=auto:out_range=pc,format=yuvj420p",
+                   "-color_range", "pc",
                    "-frames:v", "1", "-q:v", "3", str(temporary)]
         if not output.is_file():
             try:
